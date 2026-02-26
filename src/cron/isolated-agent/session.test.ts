@@ -156,5 +156,71 @@ describe("resolveCronSession", () => {
       // Should still preserve other fields from entry
       expect(result.sessionEntry.modelOverride).toBe("some-model");
     });
+
+    it("clears delivery metadata when forceNew is true to prevent thread ID leakage", () => {
+      const result = resolveWithStoredEntry({
+        sessionKey: "agent:main:cron:test-job",
+        entry: {
+          sessionId: "existing-session-id",
+          updatedAt: NOW_MS - 1000,
+          lastThreadId: "1234567890.123456",
+          lastTo: "C0123456789",
+          lastAccountId: "account-abc",
+          lastChannel: "slack",
+          modelOverride: "sonnet-4",
+        },
+        forceNew: true,
+      });
+
+      expect(result.isNewSession).toBe(true);
+      // Delivery metadata should be cleared for isolated sessions
+      expect(result.sessionEntry.lastThreadId).toBeUndefined();
+      expect(result.sessionEntry.lastTo).toBeUndefined();
+      expect(result.sessionEntry.lastAccountId).toBeUndefined();
+      // Other fields should still be preserved
+      expect(result.sessionEntry.modelOverride).toBe("sonnet-4");
+    });
+
+    it("preserves delivery metadata when forceNew is false", () => {
+      const result = resolveWithStoredEntry({
+        sessionKey: "agent:main:cron:test-job",
+        entry: {
+          sessionId: "existing-session-id",
+          updatedAt: NOW_MS - 1000,
+          lastThreadId: "1234567890.123456",
+          lastTo: "C0123456789",
+          lastAccountId: "account-abc",
+          lastChannel: "slack",
+        },
+        forceNew: false,
+        fresh: true,
+      });
+
+      expect(result.isNewSession).toBe(false);
+      // Delivery metadata should be preserved when reusing session
+      expect(result.sessionEntry.lastThreadId).toBe("1234567890.123456");
+      expect(result.sessionEntry.lastTo).toBe("C0123456789");
+      expect(result.sessionEntry.lastAccountId).toBe("account-abc");
+    });
+
+    it("clears delivery metadata only when forceNew is true, not on session expiration", () => {
+      const result = resolveWithStoredEntry({
+        sessionKey: "agent:main:cron:test-job",
+        entry: {
+          sessionId: "expired-session-id",
+          updatedAt: NOW_MS - 86_400_000, // 1 day ago (stale)
+          lastThreadId: "1234567890.123456",
+          lastTo: "C0123456789",
+          lastAccountId: "account-abc",
+        },
+        fresh: false, // Session expired due to staleness
+      });
+
+      expect(result.isNewSession).toBe(true);
+      // When session expires naturally (not forceNew), delivery metadata is preserved
+      expect(result.sessionEntry.lastThreadId).toBe("1234567890.123456");
+      expect(result.sessionEntry.lastTo).toBe("C0123456789");
+      expect(result.sessionEntry.lastAccountId).toBe("account-abc");
+    });
   });
 });

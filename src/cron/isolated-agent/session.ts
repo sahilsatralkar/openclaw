@@ -65,6 +65,15 @@ export function resolveCronSession(params: {
     sessionId,
     updatedAt: params.nowMs,
     systemSent,
+    // Clear delivery metadata for isolated cron sessions to prevent thread ID leakage.
+    // When forceNew is true (isolated session), we must not inherit lastThreadId, lastTo,
+    // or lastAccountId from prior conversation context; otherwise announce-mode cron jobs
+    // will incorrectly post as thread replies instead of channel top-level messages.
+    ...(params.forceNew && {
+      lastThreadId: undefined,
+      lastTo: undefined,
+      lastAccountId: undefined,
+    }),
   };
   return { storePath, store, sessionEntry, systemSent, isNewSession };
 }
