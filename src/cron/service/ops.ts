@@ -442,12 +442,27 @@ async function inspectManualRunDisposition(
   state: CronServiceState,
   id: string,
   mode?: "due" | "force",
+  callerContext?: CallerContext,
 ): Promise<ManualRunDisposition | { ok: false }> {
   return await locked(state, async () => {
     warnIfDisabled(state, "run");
     await ensureLoaded(state, { skipRecompute: true });
     recomputeNextRunsForMaintenance(state);
+    const { agentId, sessionKey } = callerContext ?? {};
     const job = findJobOrThrow(state, id);
+
+    if (agentId || sessionKey) {
+      if (!job.agentId && !job.sessionKey) {
+        // legacy job - allow
+      } else {
+        const agentMatch = agentId != null && job.agentId === agentId;
+        const sessionMatch = sessionKey != null && job.sessionKey === sessionKey;
+        if (!agentMatch && !sessionMatch) {
+          throw new Error("Authorization denied: job belongs to different agent/session");
+        }
+      }
+    }
+
     if (typeof job.state.runningAtMs === "number") {
       return { ok: true, ran: false, reason: "already-running" as const };
     }
@@ -616,7 +631,7 @@ export async function enqueueRun(
   mode?: "due" | "force",
   callerContext?: CallerContext,
 ) {
-  const disposition = await inspectManualRunDisposition(state, id, mode);
+  const disposition = await inspectManualRunDisposition(state, id, mode, callerContext);
   if (!disposition.ok || !("runnable" in disposition && disposition.runnable)) {
     return disposition;
   }
