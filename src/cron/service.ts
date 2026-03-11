@@ -51,6 +51,10 @@ export class CronService {
     return await ops.run(this.state, id, mode, callerContext);
   }
 
+  async enqueueRun(id: string, mode?: "due" | "force", callerContext?: CallerContext) {
+    return await ops.enqueueRun(this.state, id, mode, callerContext);
+  }
+
   getJob(id: string): CronJob | undefined {
     return this.state.store?.jobs.find((job) => job.id === id);
   }
