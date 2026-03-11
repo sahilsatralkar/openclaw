@@ -596,7 +596,12 @@ async function finishPreparedManualRun(
   });
 }
 
-export async function run(state: CronServiceState, id: string, mode?: "due" | "force", callerContext?: CallerContext) {
+export async function run(
+  state: CronServiceState,
+  id: string,
+  mode?: "due" | "force",
+  callerContext?: CallerContext,
+) {
   const prepared = await prepareManualRun(state, id, mode, callerContext);
   if (!prepared.ok || !prepared.ran) {
     return prepared;
@@ -605,7 +610,12 @@ export async function run(state: CronServiceState, id: string, mode?: "due" | "f
   return { ok: true, ran: true } as const;
 }
 
-export async function enqueueRun(state: CronServiceState, id: string, mode?: "due" | "force", callerContext?: CallerContext) {
+export async function enqueueRun(
+  state: CronServiceState,
+  id: string,
+  mode?: "due" | "force",
+  callerContext?: CallerContext,
+) {
   const disposition = await inspectManualRunDisposition(state, id, mode);
   if (!disposition.ok || !("runnable" in disposition && disposition.runnable)) {
     return disposition;
