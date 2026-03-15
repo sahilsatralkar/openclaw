@@ -436,14 +436,24 @@ type ManualRunDisposition =
   | Extract<PreparedManualRun, { ran: false }>
   | { ok: true; runnable: true };
 
+type ManualRunPreflightResult =
+  | { ok: false }
+  | Extract<PreparedManualRun, { ran: false }>
+  | {
+      ok: true;
+      runnable: true;
+      job: CronJob;
+      now: number;
+    };
+
 let nextManualRunId = 1;
 
-async function inspectManualRunDisposition(
+async function inspectManualRunPreflight(
   state: CronServiceState,
   id: string,
   mode?: "due" | "force",
   callerContext?: CallerContext,
-): Promise<ManualRunDisposition | { ok: false }> {
+): Promise<ManualRunPreflightResult> {
   return await locked(state, async () => {
     warnIfDisabled(state, "run");
     await ensureLoaded(state, { skipRecompute: true });
@@ -471,8 +481,24 @@ async function inspectManualRunDisposition(
     if (!due) {
       return { ok: true, ran: false, reason: "not-due" as const };
     }
-    return { ok: true, runnable: true } as const;
+    return { ok: true, runnable: true, job, now } as const;
   });
+}
+
+async function inspectManualRunDisposition(
+  state: CronServiceState,
+  id: string,
+  mode?: "due" | "force",
+  callerContext?: CallerContext,
+): Promise<ManualRunDisposition | { ok: false }> {
+  const result = await inspectManualRunPreflight(state, id, mode, callerContext);
+  if (!result.ok) {
+    return result;
+  }
+  if ("reason" in result) {
+    return result;
+  }
+  return { ok: true, runnable: true } as const;
 }
 
 async function prepareManualRun(
@@ -481,9 +507,22 @@ async function prepareManualRun(
   mode?: "due" | "force",
   callerContext?: CallerContext,
 ): Promise<PreparedManualRun> {
+  const preflight = await inspectManualRunPreflight(state, id, mode);
+  if (!preflight.ok) {
+    return preflight;
+  }
+  if ("reason" in preflight) {
+    return {
+      ok: true,
+      ran: false,
+      reason: preflight.reason,
+    } as const;
+  }
   return await locked(state, async () => {
     warnIfDisabled(state, "run");
     await ensureLoaded(state, { skipRecompute: true });
+    // Reserve this run under lock, then execute outside lock so read ops
+    // (`list`, `status`) stay responsive while the run is in progress.
     const { agentId, sessionKey } = callerContext ?? {};
     const job = findJobOrThrow(state, id);
 
@@ -503,22 +542,16 @@ async function prepareManualRun(
     if (typeof job.state.runningAtMs === "number") {
       return { ok: true, ran: false, reason: "already-running" as const };
     }
-    const now = state.deps.nowMs();
-    const due = isJobDue(job, now, { forced: mode === "force" });
-    if (!due) {
-      return { ok: true, ran: false, reason: "not-due" as const };
-    }
-
-    job.state.runningAtMs = now;
+    job.state.runningAtMs = preflight.now;
     job.state.lastError = undefined;
     await persist(state);
-    emit(state, { jobId: job.id, action: "started", runAtMs: now });
+    emit(state, { jobId: job.id, action: "started", runAtMs: preflight.now });
     const executionJob = JSON.parse(JSON.stringify(job)) as CronJob;
     return {
       ok: true,
       ran: true,
       jobId: job.id,
-      startedAt: now,
+      startedAt: preflight.now,
       executionJob,
     } as const;
   });
