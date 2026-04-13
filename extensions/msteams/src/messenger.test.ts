@@ -213,6 +213,7 @@ describe("msteams messenger", () => {
         },
         channelId: "msteams",
         serviceUrl: "https://service.example.com",
+        tenantId: "tenant-123",
         locale: undefined,
       });
     });
